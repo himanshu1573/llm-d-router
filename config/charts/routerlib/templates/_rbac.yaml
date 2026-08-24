@@ -1,5 +1,10 @@
 {{- define "llm-d-router.rbac" -}}
-{{- if .Values.router.monitoring.prometheus.enabled }}
+{{/* The EPP serves /metrics behind controller-runtime's delegating authenticator unless
+     --metrics-endpoint-auth=false is passed, which the deployment does only when
+     monitoring.prometheus.auth.enabled is false. Gate the TokenReview and
+     SubjectAccessReview permissions that authenticator needs on the same value, so a
+     release that authenticates its metrics endpoint always has the RBAC to do it. */}}
+{{- if .Values.router.monitoring.prometheus.auth.enabled }}
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1

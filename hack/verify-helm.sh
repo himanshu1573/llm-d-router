@@ -226,6 +226,42 @@ if eval "${invalid_failopen_command}"; then
   exit 1
 fi
 
+# The EPP authenticates /metrics unless --metrics-endpoint-auth=false is rendered, which the
+# deployment ties to monitoring.prometheus.auth.enabled. The TokenReview and SubjectAccessReview
+# permissions that authenticator needs must follow the same value, or an authenticating EPP has
+# no RBAC to verify a scrape token with.
+echo "Verifying authenticated EPP metrics render the delegating-authenticator RBAC..."
+metrics_auth_rbac_output="${TEMP_DIR}/llm-d-router-standalone-metrics-auth-rbac-render.yaml"
+metrics_auth_rbac_command="${HELM} template metrics-auth ${SCRIPT_ROOT}/config/charts/llm-d-router-standalone --set router.modelServers.matchLabels.app=llm-instance-gateway --set router.inferencePool.create=false > ${metrics_auth_rbac_output}"
+echo "Executing: ${metrics_auth_rbac_command}"
+eval "${metrics_auth_rbac_command}"
+if grep -q -- '--metrics-endpoint-auth=false' "${metrics_auth_rbac_output}"; then
+  echo "Default llm-d-router-standalone render unexpectedly disabled metrics endpoint authentication"
+  exit 1
+fi
+if ! grep -q -- 'tokenreviews' "${metrics_auth_rbac_output}"; then
+  echo "Default llm-d-router-standalone render authenticates /metrics but granted no tokenreviews create permission"
+  exit 1
+fi
+if ! grep -q -- 'subjectaccessreviews' "${metrics_auth_rbac_output}"; then
+  echo "Default llm-d-router-standalone render authenticates /metrics but granted no subjectaccessreviews create permission"
+  exit 1
+fi
+
+echo "Verifying unauthenticated EPP metrics render no delegating-authenticator RBAC..."
+metrics_noauth_rbac_output="${TEMP_DIR}/llm-d-router-standalone-metrics-noauth-rbac-render.yaml"
+metrics_noauth_rbac_command="${HELM} template metrics-noauth ${SCRIPT_ROOT}/config/charts/llm-d-router-standalone --set router.modelServers.matchLabels.app=llm-instance-gateway --set router.inferencePool.create=false --set router.monitoring.prometheus.auth.enabled=false > ${metrics_noauth_rbac_output}"
+echo "Executing: ${metrics_noauth_rbac_command}"
+eval "${metrics_noauth_rbac_command}"
+if ! grep -q -- '--metrics-endpoint-auth=false' "${metrics_noauth_rbac_output}"; then
+  echo "Disabling monitoring.prometheus.auth.enabled did not render --metrics-endpoint-auth=false"
+  exit 1
+fi
+if grep -q -- 'tokenreviews' "${metrics_noauth_rbac_output}"; then
+  echo "Unauthenticated /metrics unexpectedly rendered the delegating-authenticator RBAC"
+  exit 1
+fi
+
 echo "Verifying llm-d-router-standalone extra flags render as --flag=value..."
 flag_render_output="${TEMP_DIR}/llm-d-router-standalone-flag-render.yaml"
 flag_render_command="${HELM} template ${SCRIPT_ROOT}/config/charts/llm-d-router-standalone --set router.modelServers.matchLabels.app=llm-instance-gateway --set router.inferencePool.create=false --set-string router.epp.flags.secure-serving=false > ${flag_render_output}"
